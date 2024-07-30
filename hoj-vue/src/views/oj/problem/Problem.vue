@@ -319,8 +319,8 @@
           <span>⋮</span>
           <span>
             <el-tooltip :content="toWatchProblem
-                ? $t('m.View_Problem_Content')
-                : $t('m.Only_View_Problem')
+              ? $t('m.View_Problem_Content')
+              : $t('m.Only_View_Problem')
               " placement="right" v-if="!toResetWatch">
               <el-button icon="el-icon-caret-right" circle class="right-fold fold" @click.stop="onlyWatchProblem"
                 size="mini"></el-button>
@@ -509,6 +509,7 @@ import CodeMirror from "@/components/oj/common/CodeMirror.vue";
 import Pagination from "@/components/oj/common/Pagination";
 import ProblemHorizontalMenu from "@/components/oj/common/ProblemHorizontalMenu";
 import Markdown from "@/components/oj/common/Markdown";
+import mMessage from "../../../common/message";
 // 只显示这些状态的图形占用
 const filtedStatus = ["wa", "ce", "ac", "pa", "tle", "mle", "re", "pe"];
 
@@ -924,6 +925,7 @@ export default {
      * 如果当前选项卡是“我的提交”，则加载用户的提交记录。
      */
     init() {
+      myMessage.error('执行init函数')
       // 根据路由名称判断是否为比赛详情页，是则获取比赛信息
       if (this.$route.name === "ContestFullProblemDetails") {
         this.$store.dispatch('getContest');
@@ -1078,13 +1080,23 @@ export default {
       this.largePie.series[0].data = largePieData;
     },
 
+    /**
+     * 导航到相应的提交列表页面。
+     * 根据当前的contestID和groupID，决定导航的目标页面：
+     * - 如果contestID存在，则导航到竞赛提交列表页面。
+     * - 如果groupID存在，则导航到组提交列表页面。
+     * - 否则，导航到常规提交列表页面。
+     * 在所有情况下，都会带上problemID和completeProblemID作为查询参数。
+     */
     goProblemSubmission() {
+      // 当contestID存在时，导航到竞赛提交列表页面，并带上问题ID和完整问题ID标志
       if (this.contestID) {
         this.$router.push({
           name: "ContestSubmissionList",
           params: { contestID: this.contestID },
           query: { problemID: this.problemID, completeProblemID: true },
         });
+        // 当groupID存在时，导航到组提交列表页面，并带上问题ID、完整问题ID标志和组ID
       } else if (this.groupID) {
         this.$router.push({
           name: "GroupSubmissionList",
@@ -1094,6 +1106,7 @@ export default {
             gid: this.groupID,
           },
         });
+        // 当contestID和groupID都不存在时，导航到常规提交列表页面，并带上问题ID和完整问题ID标志
       } else {
         this.$router.push({
           name: "SubmissionList",
@@ -1191,7 +1204,7 @@ export default {
         })
         .catch(() => { });
     },
-    
+
     checkSubmissionStatus() {
       // 使用setTimeout避免一些问题
       if (this.refreshStatus) {
@@ -1206,6 +1219,7 @@ export default {
       const checkStatus = () => {
         // 使用当前组件的submissionId发起查询请求
         let submitId = this.submissionId;
+        mMessage.error('发起查询提交状态')
         // 发起查询提交状态的请求
         api.getSubmission(submitId).then(
           (res) => {
@@ -1268,125 +1282,183 @@ export default {
       );
     },
 
-/**
- * 提交代码函数，用于将用户编写的代码发送到服务器进行评测。
- * 首先检查代码是否为空或过长，然后根据不同的比赛规则和用户权限进行不同的处理。
- * 如果提交成功，会更新提交状态并提示用户。
- */
-submitCode() {
-  // 检查代码是否为空
-  if (this.code.trim() === "") {
-    myMessage.error(this.$i18n.t("m.Code_can_not_be_empty"));
-    return;
-  }
-
-  // 检查代码长度是否超过限制
-  if (this.code.length > 65535) {
-    myMessage.error(this.$i18n.t("m.Code_Length_can_not_exceed_65535"));
-    return;
-  }
-
-  // 如果在比赛中且无提交权限，则要求输入提交密码
-  // 比赛题目需要检查是否有权限提交
-  if (!this.canSubmit && this.$route.params.contestID) {
-    this.submitPwdVisible = true;
-    return;
-  }
-
-  // 初始化提交状态和结果
-  this.submissionId = "";
-  this.result = { status: 9 };
-  this.submitting = true;
-
-  // 构建提交的代码数据
-  let data = {
-    pid: this.problemID, // 如果是比赛题目就为display_id
-    language: this.language,
-    code: this.code,
-    cid: this.contestID,
-    tid: this.trainingID,
-    gid: this.groupID,
-    isRemote: this.isRemote,
-  };
-  // 如果需要验证码，则添加验证码信息到提交数据中
-  if (this.captchaRequired) {
-    data.captcha = this.captchaCode;
-  }
-
-  /**
-   * 提交代码的函数，用于实际发送提交请求。
-   * @param {Object} sendData - 发送的代码数据
-   * @param {boolean} detailsVisible - 提交后是否显示状态详情
-   */
-  const submitFunc = (data, detailsVisible) => {
-    this.statusVisible = true;
-    // 发送提交请求
-    api.submitCode(data).then(
-      (res) => {
-        // 处理提交成功的逻辑
-        this.submissionId = res.data.data && res.data.data.submitId;
-        this.submitting = false;
-        this.submissionExists = true;
-        if (!detailsVisible) {
-          this.$Modal.success({
-            title: "Success",
-            content: this.$i18n.t("m.Submit_code_successfully"),
-          });
-          return;
-        } else {
-          myMessage.success(this.$i18n.t("m.Submit_code_successfully"));
-        }
-        // 如果之前没有提交权限，则在提交成功后更新权限状态
-        if (!this.canSubmit) {
-          this.$store.commit("contestIntoAccess", { access: true });
-        }
-        this.submitted = true;
-        this.checkSubmissionStatus();
-      },
-      (res) => {
-        // 处理提交失败的逻辑
-        this.submitting = false;
-        this.statusVisible = false;
+    /**
+     * 提交代码函数，用于将用户编写的代码发送到服务器进行评测。
+     * 首先检查代码是否为空或过长，然后根据不同的比赛规则和用户权限进行不同的处理。
+     * 如果提交成功，会更新提交状态并提示用户。
+     */
+    submitCode() {
+      // 检查代码是否为空
+      if (this.code.trim() === "") {
+        myMessage.error(this.$i18n.t("m.Code_can_not_be_empty"));
+        return;
       }
-    );
-  };
 
-  // 根据比赛规则类型和实时权限判断是否需要用户确认覆盖之前的提交
-  if (
-    this.contestRuleType === RULE_TYPE.OI &&
-    !this.ContestRealTimePermission
-  ) {
-    if (this.submissionExists) {
-      // 如果有之前的提交记录，需要用户确认覆盖
-      this.$confirm(
-        this.$i18n.t(
-          "m.You_have_submission_in_this_problem_sure_to_cover_it"
-        ),
-        "Warning",
-        {
-          confirmButtonText: this.$i18n.t("m.OK"),
-          cancelButtonText: this.$i18n.t("m.Cancel"),
-          type: "warning",
+      // 检查代码长度是否超过限制
+      if (this.code.length > 65535) {
+        myMessage.error(this.$i18n.t("m.Code_Length_can_not_exceed_65535"));
+        return;
+      }
+
+      // 如果在比赛中且无提交权限，则要求输入提交密码
+      // 比赛题目需要检查是否有权限提交
+      if (!this.canSubmit && this.$route.params.contestID) {
+        this.submitPwdVisible = true;
+        return;
+      }
+
+      // 初始化提交状态和结果
+      this.submissionId = "";
+      this.result = { status: 9 };
+      this.submitting = true;
+
+      // 构建提交的代码数据
+      let data = {
+        pid: this.problemID, // 如果是比赛题目就为display_id
+        language: this.language,
+        code: this.code,
+        cid: this.contestID,
+        tid: this.trainingID,
+        gid: this.groupID,
+        isRemote: this.isRemote,
+      };
+      // 如果需要验证码，则添加验证码信息到提交数据中
+      if (this.captchaRequired) {
+        data.captcha = this.captchaCode;
+      }
+
+      /**
+       * 检查历史提交记录
+       * 该函数用于查询当前用户的特定问题或比赛的提交记录，并根据提交状态给出相应的提示。
+       * 主要用于在用户需要查看其提交记录或当提交错误次数超过阈值时提供反馈。
+       */
+      const checkHistorySubmission = () => {
+        // 初始化请求参数
+        let params = {
+          onlyMine: true, // 只查询自己的提交记录
+          currentPage: this.mySubmission_currentPage, // 当前页码
+          problemID: this.problemID, // 问题ID
+          contestID: this.contestID, // 比赛ID
+          completeProblemID: true, // 完整的问题ID
+          gid: this.groupID, // 组ID
+          // 10
+          limit: this.mySubmission_limit, // 每页记录数
+        };
+
+        // 调用API获取提交列表
+        api["getSubmissionList"](this.mySubmission_limit, utils.filterEmptyValue(params))
+          .then(
+            (res) => {
+              // 解析响应数据
+              let data = res.data.data;
+              // 获取的提交总次数（不超过10次）
+              let record_size = data.total;
+              // 提示用户获取到的提交记录数量
+              // 用作测试
+              this.$alert(`获取到 ${record_size} 条提交记录`, '提示', {
+                confirmButtonText: '确定'
+              });
+
+              // 统计状态不为0（即错误）的提交次数
+              let errorCount = data.records.filter(record => record.status !== 0).length;
+
+              // 如果错误提交次数超过3次，给出额外的提示
+              if (errorCount > 3) {
+                this.$alert('错误提交次数超过3次, 下面是题解链接', '提示', {
+                  confirmButtonText: '确定'
+                });
+              }
+
+              // 结束加载状态
+              this.loadingTable = false;
+            },
+            (err) => {
+              // 在请求失败时结束加载状态
+              this.loadingTable = false;
+            }
+          )
+          .catch(() => {
+            // 在请求异常时结束加载状态
+            this.loadingTable = false;
+          });
+      }
+
+      /**
+       * 提交代码的函数，用于实际发送提交请求。
+       * @param {Object} sendData - 发送的代码数据
+       * @param {boolean} detailsVisible - 提交后是否显示状态详情
+       */
+      const submitFunc = (data, detailsVisible) => {
+        this.statusVisible = true;
+        // 发送提交请求
+        api.submitCode(data).then(
+          (res) => {
+            // 处理提交成功的逻辑
+            this.submissionId = res.data.data && res.data.data.submitId;
+            this.submitting = false;
+            this.submissionExists = true;
+            if (!detailsVisible) {
+              this.$Modal.success({
+                title: "Success",
+                content: this.$i18n.t("m.Submit_code_successfully"),
+              });
+              return;
+            } else {
+              myMessage.success(this.$i18n.t("m.Submit_code_successfully"));
+            }
+            // 检查提交记录,超过三次错误提交则弹窗
+            checkHistorySubmission();
+            // 如果之前没有提交权限，则在提交成功后更新权限状态
+            if (!this.canSubmit) {
+              this.$store.commit("contestIntoAccess", { access: true });
+            }
+            this.submitted = true;
+            this.checkSubmissionStatus();
+          },
+          (res) => {
+            // 处理提交失败的逻辑
+            this.submitting = false;
+            this.statusVisible = false;
+          }
+        );
+      };
+
+      // 根据比赛规则类型和实时权限判断是否需要用户确认覆盖之前的提交
+      if (
+        this.contestRuleType === RULE_TYPE.OI &&
+        !this.ContestRealTimePermission
+      ) {
+        if (this.submissionExists) {
+          // 如果有之前的提交记录，需要用户确认覆盖
+          this.$confirm(
+            this.$i18n.t(
+              "m.You_have_submission_in_this_problem_sure_to_cover_it"
+            ),
+            "Warning",
+            {
+              confirmButtonText: this.$i18n.t("m.OK"),
+              cancelButtonText: this.$i18n.t("m.Cancel"),
+              type: "warning",
+            }
+          )
+            .then(() => {
+              // 延迟执行提交函数以避免对话框闪烁
+              setTimeout(() => {
+                submitFunc(data, false);
+              }, 1000);
+            })
+            .catch(() => {
+              this.submitting = false;
+            });
+        } else {
+          // 如果没有之前的提交记录，直接提交
+          submitFunc(data, false);
         }
-      )
-        .then(() => {
-          // 延迟执行提交函数以避免对话框闪烁
-          setTimeout(() => {
-            submitFunc(data, false);
-          }, 1000);
-        })
-        .catch(() => {
-          this.submitting = false;
-        });
-    } else {
-      // 如果没有之前的提交记录，直接提交
-      submitFunc(data, false);
-    }
-  } else {
-    // 其他情况下直接提交，并显示详细状态
-    submitFunc(data, true);
-  }
-},
+      } else {
+        // 其他情况下直接提交，并显示详细状态
+        submitFunc(data, true);
+      }
+    },
 
     reSubmit(submitId) {
       this.result = { status: 9 };
